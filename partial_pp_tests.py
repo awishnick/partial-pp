@@ -19,5 +19,11 @@ class TestCommandLineParsing(unittest.TestCase):
         defines = partial_pp.parse_args(args)
         self.assertEqual(defines, ([], ['FOO']))
 
+    def test_errors(self):
+        with self.assertRaises(partial_pp.InvalidCommandLineArgError):
+            partial_pp.parse_args(['FOO'])
+        with self.assertRaises(partial_pp.InvalidCommandLineArgError):
+            partial_pp.parse_args(['-UFOO=BAR'])
+
 if __name__ == '__main__':
     unittest.main()

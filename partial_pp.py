@@ -157,9 +157,9 @@ def parse_args(args):
     of two strings. The undefines are a list of strings.
     """
 
-    eq_matcher = re.compile('\-D(.+)')
-    defn_matcher = re.compile('\-D(.+)=(.+)')
-    undef_matcher = re.compile('\-U(.+)')
+    eq_matcher = re.compile('^\-D(.+)$')
+    defn_matcher = re.compile('^\-D(.+)=(.+)$')
+    undef_matcher = re.compile('^\-U(.+)$')
 
     defines = []
     undefines = []
@@ -177,8 +177,9 @@ def parse_args(args):
 
         m = undef_matcher.match(arg)
         if m is not None:
-            undefines.append(m.group(1))
-            continue
+            if '=' not in m.group(1):
+                undefines.append(m.group(1))
+                continue
 
         raise InvalidCommandLineArgError(arg)
 
