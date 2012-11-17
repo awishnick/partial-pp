@@ -1,0 +1,6 @@
+// RUN: -DTESTSYM
+// this is defined
+
+#ifdef NOT_TESTSYM
+// this is not defined
+#endif
