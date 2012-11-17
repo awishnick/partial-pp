@@ -1,0 +1,6 @@
+// RUN: -UFOO
+
+
+#ifdef BAR
+// this will not be removed
+#endif

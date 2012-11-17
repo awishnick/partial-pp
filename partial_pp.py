@@ -5,11 +5,12 @@ definitions.
 import re
 
 class Parser:
-    def __init__(self, source, defines):
+    def __init__(self, source, defines, undefines):
         self.source = source
         self.lines = source.splitlines()
         self.cur_line = 0
         self.defines = {}
+        self.undefines = set(undefines)
 
         for define in defines:
             if isinstance(define, tuple):
@@ -32,6 +33,10 @@ class Parser:
             return self.defines[sym]
         else:
             return None
+
+    def is_undefined(self, sym):
+        """Return whether the given preprocessor symbol is undefined."""
+        return sym in self.undefines
 
     def is_at_end(self):
         """Return whether all the lines have been parsed."""
@@ -109,18 +114,21 @@ class Parser:
         endif_line = self.cur_line
         self.consume_cur_line()
     
-        # If the symbol is defined, then keep the enclosed lines, but get
-        # rid of the ifdef.
         if self.lookup_define(sym) is not None:
+            # If the symbol is defined, then keep the enclosed lines, but get
+            # rid of the ifdef.
             first_line = ifdef_line + 1
             end_line = endif_line
+        elif self.is_undefined(sym):
+            # If the symbol is undefined, remove the whole block.
+            return None
         else:
             first_line = ifdef_line
             end_line = endif_line + 1
 
         return self.lines[first_line:end_line]
 
-def process(source, defines):
+def process(source, defines, undefines):
     """Preprocess source, only using definitions from defines.
 
     defines is a list, where each element is either a string, indicating
@@ -128,7 +136,7 @@ def process(source, defines):
     indicating that the former is defined to be the latter.
     """
 
-    parser = Parser(source, defines)
+    parser = Parser(source, defines, undefines)
     output_lines = parser.process()
     
     return '\n'.join(output_lines)
@@ -139,18 +147,23 @@ class InvalidCommandLineArgError(Exception):
     def __str__(self):
         return self.arg
 
-def extract_defines(args):
+def parse_args(args):
     """Extract preprocessor definitions from the command line.
 
-    Each element of args should either be of the form -DFOO or -DFOO=BAR.
-    The defines are returned as a list, where each element os either a string,
-    or a tuple of two strings.
+    Each element of args should either be of the form -DFOO or -DFOO=BAR for
+    defines, and -UFOO for undefines.
+    The return value is (defines, undefines).
+    The defines are a list, where each element os either a string, or a tuple
+    of two strings. The undefines are a list of strings.
     """
 
     eq_matcher = re.compile('\-D(.+)')
     defn_matcher = re.compile('\-D(.+)=(.+)')
+    undef_matcher = re.compile('\-U(.+)')
 
     defines = []
+    undefines = []
+
     for arg in args:
         m = defn_matcher.match(arg)
         if m is not None:
@@ -162,6 +175,11 @@ def extract_defines(args):
             defines.append(m.group(1))
             continue
 
+        m = undef_matcher.match(arg)
+        if m is not None:
+            undefines.append(m.group(1))
+            continue
+
         raise InvalidCommandLineArgError(arg)
 
-    return defines
+    return (defines, undefines)

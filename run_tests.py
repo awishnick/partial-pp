@@ -13,14 +13,14 @@ def get_test_inputs(tests_dir):
     match_inputs = re.compile('.+\\.c$')
     return [f for f in os.listdir(tests_dir) if match_inputs.match(f)]
 
-def get_defines_from_input(input):
+def get_defines_and_undefines_from_input(input):
     """Takes the input file and extracts the preprocessor definitions that it
     should be tested with.
     """
 
     first_line = input.split('\n', 1)[0]
     cmd_args = re.match('// RUN: (.+)$', first_line).group(1).split(' ')
-    return partial_pp.extract_defines(cmd_args)
+    return partial_pp.parse_args(cmd_args)
 
 def run_test(test_path):
     """Runs the preprocessor on the file and checks for correctness."""
@@ -31,8 +31,8 @@ def run_test(test_path):
     with open(test_path+'.out', 'r') as output_file:
         reference = output_file.read().rstrip()
 
-    defines = get_defines_from_input(input)
-    output = partial_pp.process(input, defines)
+    (defines, undefines) = get_defines_and_undefines_from_input(input)
+    output = partial_pp.process(input, defines, undefines)
 
     if reference != output:
         print('[!!!] {} failed:'.format(test_path))
