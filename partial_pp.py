@@ -3,22 +3,390 @@ definitions.
 """
 
 import re
+import string
+
+def build_defines_map(defines):
+    """Take a list of defines, and build it into a map."""
+    defines_map = {}
+
+    for define in defines:
+        if isinstance(define, tuple):
+            (symbol, definition) = define
+            defines_map[symbol] = definition
+        else:
+            assert isinstance(define, str)
+            defines_map[define] = ''
+
+    return defines_map
+
+class Token:
+    """A single preprocessor token."""
+
+    UNKNOWN = 0
+    IDENTIFIER = 1
+    NUMERIC_LITERAL = 2
+    LPAREN = 3
+    RPAREN = 4
+    DEFINED = 5
+    TRUE = 7
+    FALSE = 8
+
+    def __init__(self, kind, val, start, end):
+        self.kind = kind
+        self.val = val
+        self.start = start
+        self.end = end
+
+    def __repr__(self):
+        return '({}, {})'.format(self.kind, self.val)
+
+    def to_tuple(self):
+        """Convert to a tuple of (kind, val)"""
+        return (self.kind, self.val)
+
+    def get_leading_whitespace(self):
+        """Return the leading whitespace, or an empty string if none."""
+        m = re.match('^\s+', self.val)
+        if m is None:
+            return ''
+        return m.group()
+
+class TokenizerError(Exception):
+    def __init__(self, msg, pos):
+        self.msg = msg
+        self.pos = pos
+
+    def __repr__(self):
+        return 'Syntax error (pos = {}): {}'.format(pos, msg)
+
+class Tokenizer:
+    """Tokenize preprocessor expressions."""
+
+    def __init__(self, expr):
+        self.expr = expr
+        self.length = len(expr)
+        self.pos = 0
+
+    def __iter__(self):
+        return self
+
+    def consume_whitespace(self):
+        """Advance pos until it's not pointing at whitespace."""
+        if self.pos >= self.length:
+            return
+
+        if self.expr[self.pos] not in string.whitespace:
+            return
+
+        begin = self.pos
+        while self.pos < self.length:
+            if self.expr[self.pos] not in string.whitespace:
+                return
+            self.pos += 1
+
+    # These are single-character tokens that are not the prefix of any other
+    # token.
+    SINGLE_CHAR_TOKS = {'(': Token.LPAREN,
+                        ')': Token.RPAREN,
+                       }
+
+    def try_parse_operator(self):
+        """Parse operators or parentheses if they're present.
+
+        Return the token if present and update pos, otherwise update nothing and
+        return None.
+        """
+
+        if self.expr[self.pos] in self.SINGLE_CHAR_TOKS:
+            tok = self.expr[self.pos]
+            self.pos += 1
+            return (self.SINGLE_CHAR_TOKS[tok], tok)
+
+        return None
+
+    def try_parse_needle(self, needle, tok_type):
+        """Look for the given string, and parse it if present.
+
+        If present, return the token and update pos, otherwise update nothing
+        and return None.
+        """
+        needle_len = len(needle)
+        if self.pos + needle_len > self.length:
+            return None
+
+        if self.expr[self.pos:self.pos+needle_len] == needle:
+            self.pos += len(needle)
+            return (tok_type, needle)
+
+        return None
+
+
+    def try_parse_defined(self):
+        """Parse the 'defined' token if present.
+
+        If present, return the token and update pos, otherwise update nothing
+        and return None.
+        """
+
+        return self.try_parse_needle('defined', Token.DEFINED)
+
+
+    IDENTIFIER_BEGIN_CHARS = '_' + string.ascii_letters
+    IDENTIFIER_NEXT_CHARS = '_' + string.ascii_letters + string.digits
+
+    def try_parse_identifier(self):
+        """Parse an identifier if present.
+
+        If present, return the token and update pos, otherwise update nothing
+        and return None.
+        """
+
+        if self.expr[self.pos] not in self.IDENTIFIER_BEGIN_CHARS:
+            return None
+
+        begin = self.pos
+        self.pos += 1
+
+        while self.pos < self.length:
+            if self.expr[self.pos] not in self.IDENTIFIER_NEXT_CHARS:
+                break
+            self.pos += 1
+
+        return (Token.IDENTIFIER, self.expr[begin:self.pos])
+
+    def try_parse_numeric_literal(self):
+        """Parse a numeric literal if present.
+
+        If present, return the token and update pos, otherwise update nothing
+        and return None.
+        """
+
+        if self.expr[self.pos] not in string.digits:
+            return None
+
+        begin = self.pos
+        self.pos += 1
+        while self.pos < self.length:
+            if self.expr[self.pos] not in string.digits:
+                break
+            self.pos += 1
+
+        return (Token.NUMERIC_LITERAL, self.expr[begin:self.pos])
+
+    def try_parse_true_false(self):
+        """Parse true/false if present.
+
+        If present, return the token and update pos, otherwise update nothing
+        and return None.
+        """
+
+        tok = self.try_parse_needle('true', Token.TRUE)
+        if tok is not None:
+            return tok
+
+        tok = self.try_parse_needle('false', Token.FALSE)
+        if tok is not None:
+            return tok
+
+        return None
+
+    def get_next_internal(self):
+        """Return the next token. If at the end of the stream, return None.
+
+        Tokens are returned as a pair (type, str) where type is the type of
+        token (see the constants above), and str is the actual token as a
+        string.
+        """
+        if self.pos >= self.length:
+            return None
+
+        tok = self.try_parse_operator()
+        if tok is not None:
+            return tok
+
+        tok = self.try_parse_defined()
+        if tok is not None:
+            return tok
+
+        # This has to happen before trying to parse an identifier, because
+        # true/false both could be interpreted as identifiers otherwise.
+        tok = self.try_parse_true_false()
+        if tok is not None:
+            return tok
+
+        tok = self.try_parse_identifier()
+        if tok is not None:
+            return tok
+
+        tok = self.try_parse_numeric_literal()
+        if tok is not None:
+            return tok
+
+        # If we get here, the token is unknown. Just eat the single character.
+        tok = (Token.UNKNOWN, self.expr[self.pos])
+        self.pos += 1
+        return tok
+
+    def get_next(self):
+        """Return the next token. If at the end of the stream, return None.
+
+        Tokens are returned as Token objects.
+        """
+
+        # Eat whitespace first. It'll get tacked onto the beginning of
+        # whatever token is parsed.
+        start = self.pos
+        self.consume_whitespace()
+
+        tok = self.get_next_internal()
+        if tok is None:
+            return None
+
+        return Token(tok[0], self.expr[start:self.pos], start, self.pos)
+
+    def next(self):
+        """Present an iterator interface.
+
+        See get_next() for what is returned. The only difference is, this raises
+        StopIteration instead of returning None when at the end of the stream.
+        """
+
+        tok = self.get_next()
+        if tok is None:
+            raise StopIteration()
+
+        return tok
+
+class Simplifier:
+    """Simplify preprocessor conditionals as much as possible."""
+
+    def __init__(self, defines, undefines):
+        self.defines = build_defines_map(defines)
+        self.undefines = set(undefines)
+
+    def try_convert_to_boolean(self, expr):
+        """Cast a value to a boolean if possible.
+
+        If the given expression is not simplified down to a single value, return
+        the expression itself. If it is, return True or False.
+        """
+
+        if expr == 'true':
+            return True
+        if expr == 'false':
+            return False
+
+        try:
+            return int(expr) != 0
+        except ValueError:
+            return expr
+
+    def simplify(self, expr):
+        """Simplify the given expression, substituting in all defines/undefines.
+
+        If the expression can be shown to be true or false, given the set of
+        defines and undefines, return True or False. Otherwise, simplify the
+        expression as much as possible, and return it as a string.
+        """
+
+        self.tokenizer = Tokenizer(expr)
+        self.expr = expr
+        self.cur_tok = self.tokenizer.get_next()
+        return self.try_convert_to_boolean(self.simplify_expr())
+
+    def get_next_tok(self):
+        """Consume the current token and return the next one."""
+        self.cur_tok = self.tokenizer.get_next()
+        return self.cur_tok
+
+    def simplify_expr(self):
+        """Simplify a full expression using operator precedence parsing.
+
+        This being parsing the expression by parsing the leftmost
+        primary expression.
+        """
+        
+        return self.simplify_primary()
+
+    def expect_and_consume(self, kind):
+        """Consume and return the given token kind.
+        
+        If the token kind is not present, raise an error.
+        """
+
+        tok = self.cur_tok
+        self.get_next_tok()
+
+        if tok.kind != kind:
+            raise TokenizerError(tok.start,
+                                 'Expected token kind {}.'.format(kind))
+
+        return tok
+
+    ALREADY_SIMPLIFIED_KINDS = [Token.NUMERIC_LITERAL,
+                                Token.TRUE,
+                                Token.FALSE]
+
+    def simplify_primary(self):
+        """Simplify a primary expression.
+
+        primary ::= '(' expression ')'
+                  | IDENTIFIER
+                  | NUMERIC_LITERAL
+                  | 'defined' '(' IDENTIFIER ')'
+                  | 'defined' IDENTIFIER
+        """
+        
+        if self.cur_tok.kind in self.ALREADY_SIMPLIFIED_KINDS:
+            tok = self.cur_tok
+            self.get_next_tok()
+            return tok.val
+
+        if self.cur_tok.kind == Token.DEFINED:
+            first_tok = self.cur_tok
+            self.get_next_tok()
+
+            parens = False
+            if self.cur_tok.kind == Token.LPAREN:
+                parens = True
+                self.get_next_tok()
+
+            ident = self.expect_and_consume(Token.IDENTIFIER)
+            last_tok = ident
+
+            if parens:
+                last_tok = self.expect_and_consume(Token.RPAREN)
+
+            value = None
+            pp_def = ident.val.lstrip()
+            if pp_def in self.defines:
+                value = True
+            elif pp_def in self.undefines:
+                value = False
+
+            if value is None:
+                return self.expr[first_tok.start:last_tok.end+1]
+
+            if value:
+                return first_tok.get_leading_whitespace() + '1'
+            else:
+                return first_tok.get_leading_whitespace() + '0'
+
+        tok = self.cur_tok
+        self.get_next_tok()
+        import pdb
+        pdb.set_trace()
+        raise TokenizerError(tok.start, 'Unexpected token kind {}.'.format(tok.kind))
 
 class Parser:
+    """Parse and preprocess source code."""
+
     def __init__(self, source, defines, undefines):
         self.source = source
         self.lines = source.splitlines()
         self.cur_line = 0
-        self.defines = {}
+        self.defines = build_defines_map(defines)
         self.undefines = set(undefines)
-
-        for define in defines:
-            if isinstance(define, tuple):
-                (symbol, definition) = define
-                self.defines[symbol] = definition
-            else:
-                assert isinstance(define, str)
-                self.defines[define] = ''
 
         self.ifdef_matcher = re.compile('^#ifdef (.+)')
         self.endif_matcher = re.compile('^#endif')
