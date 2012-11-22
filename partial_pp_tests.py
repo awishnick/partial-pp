@@ -84,7 +84,7 @@ class TestTokenizer(unittest.TestCase):
                 (Token.BITWISE_AND, ' &'),
                 (Token.LOGICAL_OR, ' ||'),
                 (Token.BITWISE_OR, ' |'),
-                (Token.NOT, ' !'),
+                (Token.LOGICAL_NOT, ' !'),
                 (Token.NEQ, ' !='),
                 (Token.EQ, ' =='),
                ]

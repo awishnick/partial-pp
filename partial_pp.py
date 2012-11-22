@@ -34,9 +34,32 @@ class Token:
     LOGICAL_AND = 10
     BITWISE_OR = 11
     LOGICAL_OR = 12
-    NOT = 13
+    LOGICAL_NOT = 13
     NEQ = 14
     EQ = 15
+    
+    BINARY_OPERATORS = {
+        BITWISE_AND,
+        LOGICAL_AND,
+        BITWISE_OR,
+        LOGICAL_OR,
+        NEQ,
+        EQ,
+    }
+
+    UNARY_OPERATORS = {
+        LOGICAL_NOT
+    }
+
+    OPERATOR_PRECEDENCES = {
+        LOGICAL_NOT: 3,
+        EQ: 9,
+        NEQ: 9,
+        BITWISE_AND: 10,
+        BITWISE_OR: 12,
+        LOGICAL_AND: 13,
+        LOGICAL_OR: 14,
+    }
 
     def __init__(self, kind, val, start, end):
         self.kind = kind
@@ -56,7 +79,29 @@ class Token:
         m = re.match('^\s+', self.val)
         if m is None:
             return ''
-        return m.group()
+        return m.group(0)
+
+    def is_binary_operator(self):
+        """Return if this is a binary operator."""
+
+        return self.kind in Token.BINARY_OPERATORS
+
+    def is_unary_operator(self):
+        """Return if this is a unary operator."""
+
+        return self.kind in Token.UNARY_OPERATORS
+
+    def get_operator_precedence(self):
+        """Return this operator's precedence.
+
+        If this is not an operator, return None.
+        """
+
+        if self.kind in Token.OPERATOR_PRECEDENCES:
+            return Token.OPERATOR_PRECEDENCES[self.kind]
+
+        return None
+
 
 class TokenizerError(Exception):
     def __init__(self, msg, pos):
@@ -142,7 +187,7 @@ class Tokenizer:
                 if self.expr[self.pos] == '=':
                     self.pos += 1
                     return (Token.NEQ, '!=')
-            return (Token.NOT, '!')
+            return (Token.LOGICAL_NOT, '!')
 
         return None
 
@@ -341,15 +386,6 @@ class Simplifier:
         self.cur_tok = self.tokenizer.get_next()
         return self.cur_tok
 
-    def simplify_expr(self):
-        """Simplify a full expression using operator precedence parsing.
-
-        This being parsing the expression by parsing the leftmost
-        primary expression.
-        """
-        
-        return self.simplify_primary()
-
     def expect_and_consume(self, kind):
         """Consume and return the given token kind.
         
@@ -364,6 +400,88 @@ class Simplifier:
                                  'Expected token kind {}.'.format(kind))
 
         return tok
+
+    def simplify_expr(self):
+        """Simplify a full expression using operator precedence parsing.
+
+        This being parsing the expression by parsing the leftmost
+        primary expression.
+        """
+        
+        return self.simplify_expr_op(self.simplify_primary(), 0)
+
+    def simplify_binop(self, op, lhs, rhs):
+        """Try to simplify the expression lhs op rhs."""
+
+        lhs = self.try_convert_to_boolean(lhs)
+        rhs = self.try_convert_to_boolean(rhs)
+        lhs_bool = isinstance(lhs, bool)
+        rhs_bool = isinstance(rhs, bool)
+        both_bool = lhs_bool and rhs_bool
+
+        # If exactly one argument's value is known, make it so that one is lhs,
+        # to simplify the code
+        if rhs_bool and not lhs_bool:
+            (rhs, lhs) = (lhs, rhs)
+            (rhs_bool, lhs_bool) = (lhs_bool, rhs_bool)
+
+        if op.kind == Token.LOGICAL_AND:
+            if both_bool:
+                return lhs and rhs
+
+            if lhs_bool:
+                if lhs_val:
+                    return lhs.get_leading_whitespace() + rhs
+                else:
+                    return op.get_leading_whitespace() + 'false'
+
+        if op.kind == Token.LOGICAL_OR:
+            if both_bool:
+                return lhs or rhs
+
+            if lhs_bool:
+                if lhs_val:
+                    return op.get_leading_whitespace() + 'true'
+                else:
+                    return rhs
+
+
+        # We couldn't simplify anything.
+        return lhs + ' ' + op + ' ' + rhs
+
+
+    def simplify_expr_op(self, lhs, min_precedence):
+        """Perform the actual operator precedence parsing and simplification.
+        """
+
+        while self.cur_tok is not None:
+            if not self.cur_tok.is_binary_operator():
+                break;
+            if self.cur_tok.get_operator_precedence() < min_precedence:
+                break
+
+            op = self.cur_tok
+            op_prec = op.get_operator_precedence()
+            self.get_next_tok()
+            rhs = self.simplify_primary()
+
+            while self.cur_tok is not None:
+                if self.cur_tok.get_operator_precedence() is None:
+                    break
+
+                prec = self.cur_tok.get_operator_precedence()
+                if self.cur_tok.is_binary_operator() and prec <= op_prec:
+                    break
+
+                lookahread = self.cur_tok
+                lookahead_prec = lookahead.get_operator_precedence()
+                self.get_next_tok()
+                rhs = self.simplify_expr_op(rhs, lookahead_prec)
+
+            # Here we try to simplify LHS op RHS and store it in LHS.
+            lhs = self.simplify_binop(op, lhs, rhs)
+
+        return lhs
 
     ALREADY_SIMPLIFIED_KINDS = [Token.NUMERIC_LITERAL,
                                 Token.TRUE,
@@ -413,6 +531,17 @@ class Simplifier:
                 return first_tok.get_leading_whitespace() + '1'
             else:
                 return first_tok.get_leading_whitespace() + '0'
+
+        if self.cur_tok.kind == Token.IDENTIFIER:
+            tok = self.cur_tok
+            self.get_next_tok()
+
+            pp_def = tok.val.lstrip()
+            value = None
+            if pp_def in self.defines:
+                return self.defines[pp_def]
+
+            return tok.val
 
         tok = self.cur_tok
         self.get_next_tok()
