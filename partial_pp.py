@@ -103,8 +103,8 @@ class Tokenizer:
         '|': (Token.BITWISE_OR, Token.LOGICAL_OR),
     }
 
-    def try_parse_operator(self):
-        """Parse operators or parentheses if they're present.
+    def try_lex_operator(self):
+        """Tokenize operators or parentheses if they're present.
 
         Return the token if present and update pos, otherwise update nothing and
         return None.
@@ -146,8 +146,8 @@ class Tokenizer:
 
         return None
 
-    def try_parse_needle(self, needle, tok_type):
-        """Look for the given string, and parse it if present.
+    def try_lex_needle(self, needle, tok_type):
+        """Look for the given string, and tokenize it if present.
 
         If present, return the token and update pos, otherwise update nothing
         and return None.
@@ -163,21 +163,21 @@ class Tokenizer:
         return None
 
 
-    def try_parse_defined(self):
-        """Parse the 'defined' token if present.
+    def try_lex_defined(self):
+        """Tokenize the 'defined' token if present.
 
         If present, return the token and update pos, otherwise update nothing
         and return None.
         """
 
-        return self.try_parse_needle('defined', Token.DEFINED)
+        return self.try_lex_needle('defined', Token.DEFINED)
 
 
     IDENTIFIER_BEGIN_CHARS = '_' + string.ascii_letters
     IDENTIFIER_NEXT_CHARS = '_' + string.ascii_letters + string.digits
 
-    def try_parse_identifier(self):
-        """Parse an identifier if present.
+    def try_lex_identifier(self):
+        """Tokenize an identifier if present.
 
         If present, return the token and update pos, otherwise update nothing
         and return None.
@@ -196,8 +196,8 @@ class Tokenizer:
 
         return (Token.IDENTIFIER, self.expr[begin:self.pos])
 
-    def try_parse_numeric_literal(self):
-        """Parse a numeric literal if present.
+    def try_lex_numeric_literal(self):
+        """Tokenize a numeric literal if present.
 
         If present, return the token and update pos, otherwise update nothing
         and return None.
@@ -215,18 +215,18 @@ class Tokenizer:
 
         return (Token.NUMERIC_LITERAL, self.expr[begin:self.pos])
 
-    def try_parse_true_false(self):
-        """Parse true/false if present.
+    def try_lex_true_false(self):
+        """Tokenize true/false if present.
 
         If present, return the token and update pos, otherwise update nothing
         and return None.
         """
 
-        tok = self.try_parse_needle('true', Token.TRUE)
+        tok = self.try_lex_needle('true', Token.TRUE)
         if tok is not None:
             return tok
 
-        tok = self.try_parse_needle('false', Token.FALSE)
+        tok = self.try_lex_needle('false', Token.FALSE)
         if tok is not None:
             return tok
 
@@ -242,25 +242,25 @@ class Tokenizer:
         if self.pos >= self.length:
             return None
 
-        tok = self.try_parse_operator()
+        tok = self.try_lex_operator()
         if tok is not None:
             return tok
 
-        tok = self.try_parse_defined()
+        tok = self.try_lex_defined()
         if tok is not None:
             return tok
 
         # This has to happen before trying to parse an identifier, because
         # true/false both could be interpreted as identifiers otherwise.
-        tok = self.try_parse_true_false()
+        tok = self.try_lex_true_false()
         if tok is not None:
             return tok
 
-        tok = self.try_parse_identifier()
+        tok = self.try_lex_identifier()
         if tok is not None:
             return tok
 
-        tok = self.try_parse_numeric_literal()
+        tok = self.try_lex_numeric_literal()
         if tok is not None:
             return tok
 
