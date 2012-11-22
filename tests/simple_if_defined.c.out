@@ -1,0 +1,7 @@
+// RUN: -DDEFINED -UUNDEFINED
+// this is defined
+
+
+#if defined(FOO)
+// this is unknown and will be left
+#endif

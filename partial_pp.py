@@ -390,6 +390,9 @@ class Parser:
 
         self.ifdef_matcher = re.compile('^#ifdef (.+)')
         self.endif_matcher = re.compile('^#endif')
+        self.if_matcher = re.compile('^#if (.+)')
+
+        self.simplifier = Simplifier(defines, undefines)
 
     def lookup_define(self, sym):
         """If the given preprocessor symbol is defined, return its value.
@@ -461,6 +464,10 @@ class Parser:
         if m is not None:
             return self.parse_ifdef(m.group(1))
 
+        m = self.if_matcher.match(self.get_cur_line())
+        if m is not None:
+            return self.parse_if(m.group(1))
+
         return [self.consume_cur_line()]
 
     def parse_ifdef(self, sym):
@@ -495,6 +502,44 @@ class Parser:
             end_line = endif_line + 1
 
         return self.lines[first_line:end_line]
+
+    def parse_if(self, expr):
+        """Parse an #if statement, where expr is the conditional.
+
+        Tries to simplify the expression using the defined/undefined symbols. If
+        the expression can be fully simplified, the #if/#endif will be removed,
+        and the source will remain only if the condition is true. Otherwise, the
+        simplified expression will be emitted in place of the original one.
+        """
+
+        # Eat the if
+        if_line = self.cur_line
+        self.consume_cur_line()
+
+        self.consume_until_match(self.endif_matcher)
+        assert not self.is_at_end()
+
+        # Eat the endif
+        endif_line = self.cur_line
+        self.consume_cur_line()
+
+        simplified = self.simplifier.simplify(expr)
+
+        # If the condition is known to be true, then keep the enclosed
+        # lines, but get rid of the if.
+        if simplified is True:
+            first_line = if_line + 1
+            end_line = endif_line
+            return self.lines[first_line:end_line]
+
+        # If the condition is known to be false, remove the whole block.
+        if simplified is False:
+            return None
+
+        # Otherwise, the condition's value isn't known, but it might have been
+        # simplified. Replace the expression with the simplified one.
+        new_line = self.lines[if_line].replace(expr, simplified)
+        return [new_line] + self.lines[if_line+1:endif_line+1]
 
 def process(source, defines, undefines):
     """Preprocess source, only using definitions from defines.
