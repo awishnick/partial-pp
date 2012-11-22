@@ -78,5 +78,17 @@ class TestTokenizer(unittest.TestCase):
         false_tok = Tokenizer('false').next()
         self.assertEqual(false_tok.kind, Token.FALSE)
 
+    def test_operators(self):
+        expr = '&& & || | ! != =='
+        toks = [(Token.LOGICAL_AND, '&&'),
+                (Token.BITWISE_AND, ' &'),
+                (Token.LOGICAL_OR, ' ||'),
+                (Token.BITWISE_OR, ' |'),
+                (Token.NOT, ' !'),
+                (Token.NEQ, ' !='),
+                (Token.EQ, ' =='),
+               ]
+        self.assertEqual([tok.to_tuple() for tok in Tokenizer(expr)], toks)
+
 if __name__ == '__main__':
     unittest.main()

@@ -30,6 +30,13 @@ class Token:
     DEFINED = 5
     TRUE = 7
     FALSE = 8
+    BITWISE_AND = 9
+    LOGICAL_AND = 10
+    BITWISE_OR = 11
+    LOGICAL_OR = 12
+    NOT = 13
+    NEQ = 14
+    EQ = 15
 
     def __init__(self, kind, val, start, end):
         self.kind = kind
@@ -90,6 +97,12 @@ class Tokenizer:
                         ')': Token.RPAREN,
                        }
 
+    # These are operators that can either be one or two characters.
+    SINGLE_OR_DOUBLE_CHAR_TOKS = {
+        '&': (Token.BITWISE_AND, Token.LOGICAL_AND),
+        '|': (Token.BITWISE_OR, Token.LOGICAL_OR),
+    }
+
     def try_parse_operator(self):
         """Parse operators or parentheses if they're present.
 
@@ -101,6 +114,35 @@ class Tokenizer:
             tok = self.expr[self.pos]
             self.pos += 1
             return (self.SINGLE_CHAR_TOKS[tok], tok)
+
+        if self.expr[self.pos] in self.SINGLE_OR_DOUBLE_CHAR_TOKS:
+            tok = self.expr[self.pos]
+            toklen = 1
+            self.pos += 1
+
+            if self.pos < self.length:
+                if self.expr[self.pos] == tok:
+                    self.pos += 1
+                    toklen += 1
+
+            return (self.SINGLE_OR_DOUBLE_CHAR_TOKS[tok][toklen-1], tok+tok)
+
+        if self.expr[self.pos] == '=':
+            self.pos += 1
+            if self.pos < self.length:
+                if self.expr[self.pos] == '=':
+                    self.pos += 1
+                    return (Token.EQ, '==')
+
+            raise TokenizerError(self.pos, "Expected '='.")
+
+        if self.expr[self.pos] == '!':
+            self.pos += 1
+            if self.pos < self.length:
+                if self.expr[self.pos] == '=':
+                    self.pos += 1
+                    return (Token.NEQ, '!=')
+            return (Token.NOT, '!')
 
         return None
 
@@ -374,8 +416,6 @@ class Simplifier:
 
         tok = self.cur_tok
         self.get_next_tok()
-        import pdb
-        pdb.set_trace()
         raise TokenizerError(tok.start, 'Unexpected token kind {}.'.format(tok.kind))
 
 class Parser:
